@@ -27,6 +27,84 @@ function parseTimestampFromFilename(filename: string): { timestamp: string; time
   return { timestamp: '00:00:00', timestamp_seconds: 0 };
 }
 
+async function fillFrameGaps(
+  input: string,
+  framesDir: string,
+  framePaths: string[],
+  gapInterval: number,
+  maxWidth: number
+): Promise<string[]> {
+  // Helper: parse seconds from a frame file path (works for both frame_NNNN_HH-MM-SS.jpg and gapfill_HH-MM-SS.jpg)
+  function tsOf(p: string): number {
+    const f = (p.split(/[\\/]/).pop() ?? '');
+    const m = f.match(/(\d{2})-(\d{2})-(\d{2})\.jpg$/);
+    return m ? parseInt(m[1], 10) * 3600 + parseInt(m[2], 10) * 60 + parseInt(m[3], 10) : 0;
+  }
+
+  // Sort existing frames by timestamp
+  const sorted = [...framePaths].sort((a, b) => tsOf(a) - tsOf(b));
+  if (sorted.length < 2) return framePaths;
+
+  // Find timestamps to fill
+  const toFill: number[] = [];
+  for (let i = 0; i < sorted.length - 1; i++) {
+    const start = tsOf(sorted[i]);
+    const end = tsOf(sorted[i + 1]);
+    const gap = end - start;
+    if (gap > gapInterval) {
+      for (let t = start + gapInterval; t < end - gapInterval / 2; t += gapInterval) {
+        const rounded = Math.round(t);
+        // Skip if within 0.5s of any existing frame
+        if (!sorted.some(p => Math.abs(tsOf(p) - rounded) < 0.5)) {
+          toFill.push(rounded);
+        }
+      }
+    }
+  }
+
+  if (toFill.length === 0) return framePaths;
+
+  // Extract fill frames with gapfill_ prefix
+  const fillPaths: string[] = [];
+  for (const t of toFill) {
+    const h = String(Math.floor(t / 3600)).padStart(2, '0');
+    const m = String(Math.floor((t % 3600) / 60)).padStart(2, '0');
+    const s = String(t % 60).padStart(2, '0');
+    const outPath = join(framesDir, `gapfill_${h}-${m}-${s}.jpg`);
+    try {
+      await ffmpeg.extractFrameAt(input, `${h}:${m}:${s}`, outPath, maxWidth);
+      fillPaths.push(outPath);
+    } catch { /* skip frames that fail */ }
+  }
+
+  if (fillPaths.length === 0) return framePaths;
+
+  // Merge all frames and sort by timestamp
+  const all = [...framePaths, ...fillPaths].sort((a, b) => tsOf(a) - tsOf(b));
+
+  // Rename via temp names first to avoid conflicts during renumbering
+  const tmpPaths: string[] = [];
+  for (let i = 0; i < all.length; i++) {
+    const tmp = join(framesDir, `tmp_renum_${String(i).padStart(5, '0')}.jpg`);
+    await fs.rename(all[i], tmp);
+    tmpPaths.push(tmp);
+  }
+
+  // Rename to final frame_NNNN_HH-MM-SS.jpg names (preserving original timestamps)
+  const finalPaths: string[] = [];
+  for (let i = 0; i < tmpPaths.length; i++) {
+    const origTs = tsOf(all[i]);
+    const h = String(Math.floor(origTs / 3600)).padStart(2, '0');
+    const m = String(Math.floor((origTs % 3600) / 60)).padStart(2, '0');
+    const s = String(origTs % 60).padStart(2, '0');
+    const finalPath = join(framesDir, `frame_${String(i + 1).padStart(4, '0')}_${h}-${m}-${s}.jpg`);
+    await fs.rename(tmpPaths[i], finalPath);
+    finalPaths.push(finalPath);
+  }
+
+  return finalPaths;
+}
+
 export async function extractAndGrid(
   input: string,
   jobDir: string,
@@ -39,6 +117,13 @@ export async function extractAndGrid(
   log(`Pulling frames (mode: ${opts.mode})...`);
   let framePaths = await ffmpeg.extractFrames(input, framesDir, opts);
   log(`Got ${framePaths.length} frames.`);
+
+  // Gap-fill: for scene mode, ensure no gap larger than gap_fill_interval goes uncovered
+  if (opts.mode === 'scene' && opts.gap_fill_interval && opts.gap_fill_interval > 0) {
+    log(`Filling coverage gaps > ${opts.gap_fill_interval}s...`);
+    framePaths = await fillFrameGaps(input, framesDir, framePaths, opts.gap_fill_interval, opts.max_width ?? 768);
+    log(`After gap-fill: ${framePaths.length} frames.`);
+  }
 
   const maxFrames = opts.max_frames ?? 80;
   let adjustedThreshold: number | undefined;

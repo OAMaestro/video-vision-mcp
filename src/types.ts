@@ -30,6 +30,7 @@ export interface ExtractionOptions {
   max_width?: number;
   overlay_timestamp?: boolean;
   durationSeconds?: number;   // Required for overview mode to calculate interval
+  gap_fill_interval?: number; // For scene mode: extract fill frames in any gap larger than this (seconds)
 }
 
 export interface GridResult {
