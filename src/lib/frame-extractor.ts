@@ -91,8 +91,8 @@ export async function extractAndGrid(
     return { grids: [], frames, adjustedThreshold };
   }
 
-  // 6. Group frames into chunks of 16
-  const CHUNK_SIZE = 16;
+  // 6. Group frames into chunks of 6 (works well for both 2-col and 3-col layouts)
+  const CHUNK_SIZE = 6;
   const grids: GridResult[] = [];
   const totalGrids = Math.ceil(framePaths.length / CHUNK_SIZE);
   log(`Composing ${totalGrids} frame grid${totalGrids !== 1 ? 's' : ''}...`);

@@ -141,7 +141,7 @@ async function analyzeVideoTool(args, sessionDir) {
             // detailed or full
             extractionOpts = {
                 mode: 'scene',
-                scene_threshold: args.scene_threshold ?? 0.3,
+                scene_threshold: args.scene_threshold ?? 0.2,
                 max_frames: args.max_frames ?? 80,
                 start_time: args.start_time,
                 end_time: args.end_time,

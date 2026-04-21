@@ -28,6 +28,8 @@ export async function createFrameGridTool(
 
     const grid = await gridComposer.composeGrid(args.frame_paths, outputPath, {
       includeLabels: args.include_frame_labels ?? true,
+      columns: args.columns,
+      cellWidth: args.cell_width,
     });
 
     const buf = await fs.readFile(outputPath);

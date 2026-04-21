@@ -105,6 +105,29 @@ async function getLocalVideoInfo(filePath) {
     };
 }
 const DRAWTEXT_FILTER = "drawtext=text='%{pts\\\\:hms}':x=10:y=10:fontsize=18:fontcolor=white:box=1:boxcolor=black@0.6:boxborderw=4";
+function parsePtsTimes(stderr) {
+    const times = [];
+    const re = /\bpts_time:\s*([\d.]+)/g;
+    let m;
+    while ((m = re.exec(stderr)) !== null) {
+        times.push(parseFloat(m[1]));
+    }
+    return times;
+}
+async function renameFramesWithTimes(outputDir, ptsTimes) {
+    const files = (await fs.readdir(outputDir))
+        .filter(f => /^frame_\d{4}\.jpg$/.test(f))
+        .sort();
+    for (let i = 0; i < files.length && i < ptsTimes.length; i++) {
+        const sec = ptsTimes[i];
+        const h = Math.floor(sec / 3600);
+        const m = Math.floor((sec % 3600) / 60);
+        const s = Math.floor(sec % 60);
+        const tsTag = `${String(h).padStart(2, '0')}-${String(m).padStart(2, '0')}-${String(s).padStart(2, '0')}`;
+        const newName = files[i].replace('.jpg', `_${tsTag}.jpg`);
+        await fs.rename((0, path_1.join)(outputDir, files[i]), (0, path_1.join)(outputDir, newName));
+    }
+}
 async function extractFrames(input, outputDir, opts) {
     await fs.mkdir(outputDir, { recursive: true });
     const baseArgs = [];
@@ -142,7 +165,7 @@ async function extractFrames(input, outputDir, opts) {
     }
     else if (opts.mode === 'scene') {
         const threshold = opts.scene_threshold ?? 0.3;
-        vfParts.push(`select='gt(scene,${threshold})'`, 'scale=768:-2', DRAWTEXT_FILTER);
+        vfParts.push(`select='gt(scene,${threshold})'`, 'showinfo', 'scale=768:-2', DRAWTEXT_FILTER);
         const args = [
             ...baseArgs,
             '-vf', vfParts.join(','),
@@ -150,21 +173,25 @@ async function extractFrames(input, outputDir, opts) {
             '-q:v', '3',
             outputPattern,
         ];
-        await spawnProcess(FFMPEG, args);
+        const { stderr } = await spawnProcess(FFMPEG, args);
+        const ptsTimes = parsePtsTimes(stderr);
+        await renameFramesWithTimes(outputDir, ptsTimes);
     }
     else if (opts.mode === 'interval') {
         const fps = opts.fps ?? 1;
-        vfParts.push(`fps=${fps}`, 'scale=768:-2', DRAWTEXT_FILTER);
+        vfParts.push(`fps=${fps}`, 'showinfo', 'scale=768:-2', DRAWTEXT_FILTER);
         const args = [
             ...baseArgs,
             '-vf', vfParts.join(','),
             '-q:v', '3',
             outputPattern,
         ];
-        await spawnProcess(FFMPEG, args);
+        const { stderr } = await spawnProcess(FFMPEG, args);
+        const ptsTimes = parsePtsTimes(stderr);
+        await renameFramesWithTimes(outputDir, ptsTimes);
     }
     else if (opts.mode === 'keyframe') {
-        vfParts.push("select='eq(pict_type\\\\,I)'", 'scale=768:-2', DRAWTEXT_FILTER);
+        vfParts.push("select='eq(pict_type\\\\,I)'", 'showinfo', 'scale=768:-2', DRAWTEXT_FILTER);
         const args = [
             ...baseArgs,
             '-vf', vfParts.join(','),
@@ -172,7 +199,9 @@ async function extractFrames(input, outputDir, opts) {
             '-q:v', '3',
             outputPattern,
         ];
-        await spawnProcess(FFMPEG, args);
+        const { stderr } = await spawnProcess(FFMPEG, args);
+        const ptsTimes = parsePtsTimes(stderr);
+        await renameFramesWithTimes(outputDir, ptsTimes);
     }
     else if (opts.mode === 'targeted') {
         // Each timestamp is a separate extraction
