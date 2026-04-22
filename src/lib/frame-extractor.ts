@@ -125,6 +125,25 @@ export async function extractAndGrid(
     log(`After gap-fill: ${framePaths.length} frames.`);
   }
 
+  // Guarantee a frame near the video start in scene mode
+  if (opts.mode === 'scene' && framePaths.length > 0) {
+    function tsOf(p: string): number {
+      const f = (p.split(/[\\/]/).pop() ?? '');
+      const m = f.match(/(\d{2})-(\d{2})-(\d{2})\.jpg$/);
+      return m ? parseInt(m[1], 10) * 3600 + parseInt(m[2], 10) * 60 + parseInt(m[3], 10) : Infinity;
+    }
+    const sorted = [...framePaths].sort((a, b) => tsOf(a) - tsOf(b));
+    if (tsOf(sorted[0]) > 3) {
+      const startTs = opts.start_time ?? '00:00:00';
+      const outPath = join(framesDir, 'gapfill_00-00-00.jpg');
+      try {
+        await ffmpeg.extractFrameAt(input, startTs, outPath, opts.max_width ?? 768);
+        framePaths = [outPath, ...framePaths];
+        log(`Prepended start frame at ${startTs}.`);
+      } catch { /* skip if start frame extraction fails */ }
+    }
+  }
+
   const maxFrames = opts.max_frames ?? 80;
   let adjustedThreshold: number | undefined;
 
