@@ -72,12 +72,14 @@ const DRAWTEXT_FILTER = "drawtext=text='%{pts\\\\:hms}':x=10:y=10:fontsize=18:fo
 
 function parsePtsTimes(stderr: string): number[] {
   const times: number[] = [];
-  const re = /pts_time:([\d.]+)/g;
+  const re = /\bpts_time:([\d.]+)/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(stderr)) !== null) {
     times.push(parseFloat(m[1]));
   }
-  process.stderr.write(`[OA Maestro] parsePtsTimes: found ${times.length} timestamps in stderr\n`);
+  if (times.length === 0) {
+    process.stderr.write(`[OA Maestro] parsePtsTimes: found 0 timestamps in stderr\n`);
+  }
   return times;
 }
 
@@ -89,13 +91,22 @@ async function renameFramesWithTimes(outputDir: string, ptsTimes: number[], dura
   let timesToUse: number[];
   if (ptsTimes.length >= files.length) {
     timesToUse = ptsTimes;
-  } else if (ptsTimes.length === 0 && durationSeconds !== undefined) {
+  } else if (ptsTimes.length === 0 && durationSeconds !== undefined && durationSeconds > 0) {
     // fallback: distribute evenly across video duration
     process.stderr.write(`[OA Maestro] renameFramesWithTimes: no pts timestamps, using synthetic distribution over ${durationSeconds}s\n`);
-    timesToUse = files.map((_, i) => (durationSeconds! / files.length) * i);
+    timesToUse = files.map((_, i) => (durationSeconds / files.length) * i);
   } else if (ptsTimes.length > 0 && ptsTimes.length < files.length) {
     process.stderr.write(`[OA Maestro] renameFramesWithTimes: pts timestamps (${ptsTimes.length}) fewer than files (${files.length}), using available\n`);
-    timesToUse = ptsTimes;
+    // extend with evenly-distributed tail for frames beyond ptsTimes coverage
+    if (durationSeconds && durationSeconds > 0) {
+      const covered = ptsTimes.length;
+      const tail = files.slice(covered).map((_, i) =>
+        ptsTimes[covered - 1] + ((durationSeconds - ptsTimes[covered - 1]) / (files.length - covered)) * (i + 1)
+      );
+      timesToUse = [...ptsTimes, ...tail];
+    } else {
+      timesToUse = ptsTimes; // best-effort: last frames stay unrenamed
+    }
   } else {
     process.stderr.write(`[OA Maestro] renameFramesWithTimes: no timestamps and no duration — skipping rename\n`);
     return;
@@ -111,7 +122,7 @@ async function renameFramesWithTimes(outputDir: string, ptsTimes: number[], dura
     try {
       await fs.rename(join(outputDir, files[i]), join(outputDir, newName));
     } catch (err: any) {
-      process.stderr.write(`[OA Maestro] rename failed: ${err.message}\n`);
+      process.stderr.write(`[OA Maestro] rename failed: ${files[i]} → ${newName}: ${err.message}\n`);
     }
   }
 }
@@ -155,7 +166,11 @@ export async function extractFrames(
       const s = ts % 60;
       const tsTag = `${String(h).padStart(2, '0')}-${String(m).padStart(2, '0')}-${String(s).padStart(2, '0')}`;
       const newName = extracted[i].replace('.jpg', `_${tsTag}.jpg`);
-      await fs.rename(join(outputDir, extracted[i]), join(outputDir, newName));
+      try {
+        await fs.rename(join(outputDir, extracted[i]), join(outputDir, newName));
+      } catch (err: any) {
+        process.stderr.write(`[OA Maestro] rename failed: ${extracted[i]} → ${newName}: ${err.message}\n`);
+      }
     }
   } else if (opts.mode === 'scene') {
     const threshold = opts.scene_threshold ?? 0.3;

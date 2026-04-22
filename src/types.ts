@@ -29,7 +29,7 @@ export interface ExtractionOptions {
   end_time?: string;
   max_width?: number;
   overlay_timestamp?: boolean;
-  durationSeconds?: number;   // Required for overview mode to calculate interval
+  durationSeconds?: number; // For overview mode interval calc; fallback for timestamp rename in scene/interval/keyframe modes
   gap_fill_interval?: number; // For scene mode: extract fill frames in any gap larger than this (seconds)
 }
 
