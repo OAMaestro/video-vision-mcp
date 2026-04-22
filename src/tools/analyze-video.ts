@@ -126,6 +126,7 @@ export async function analyzeVideoTool(
         max_frames: args.max_frames ?? 80,
         start_time: args.start_time,
         end_time: args.end_time,
+        durationSeconds: videoInfo.duration_seconds,
       };
     }
 

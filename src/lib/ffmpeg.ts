@@ -72,26 +72,47 @@ const DRAWTEXT_FILTER = "drawtext=text='%{pts\\\\:hms}':x=10:y=10:fontsize=18:fo
 
 function parsePtsTimes(stderr: string): number[] {
   const times: number[] = [];
-  const re = /\bpts_time:\s*([\d.]+)/g;
+  const re = /pts_time:([\d.]+)/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(stderr)) !== null) {
     times.push(parseFloat(m[1]));
   }
+  process.stderr.write(`[OA Maestro] parsePtsTimes: found ${times.length} timestamps in stderr\n`);
   return times;
 }
 
-async function renameFramesWithTimes(outputDir: string, ptsTimes: number[]): Promise<void> {
+async function renameFramesWithTimes(outputDir: string, ptsTimes: number[], durationSeconds?: number): Promise<void> {
   const files = (await fs.readdir(outputDir))
     .filter(f => /^frame_\d{4}\.jpg$/.test(f))
     .sort();
-  for (let i = 0; i < files.length && i < ptsTimes.length; i++) {
-    const sec = ptsTimes[i];
+
+  let timesToUse: number[];
+  if (ptsTimes.length >= files.length) {
+    timesToUse = ptsTimes;
+  } else if (ptsTimes.length === 0 && durationSeconds !== undefined) {
+    // fallback: distribute evenly across video duration
+    process.stderr.write(`[OA Maestro] renameFramesWithTimes: no pts timestamps, using synthetic distribution over ${durationSeconds}s\n`);
+    timesToUse = files.map((_, i) => (durationSeconds! / files.length) * i);
+  } else if (ptsTimes.length > 0 && ptsTimes.length < files.length) {
+    process.stderr.write(`[OA Maestro] renameFramesWithTimes: pts timestamps (${ptsTimes.length}) fewer than files (${files.length}), using available\n`);
+    timesToUse = ptsTimes;
+  } else {
+    process.stderr.write(`[OA Maestro] renameFramesWithTimes: no timestamps and no duration — skipping rename\n`);
+    return;
+  }
+
+  for (let i = 0; i < files.length && i < timesToUse.length; i++) {
+    const sec = timesToUse[i];
     const h = Math.floor(sec / 3600);
     const m = Math.floor((sec % 3600) / 60);
     const s = Math.floor(sec % 60);
     const tsTag = `${String(h).padStart(2, '0')}-${String(m).padStart(2, '0')}-${String(s).padStart(2, '0')}`;
     const newName = files[i].replace('.jpg', `_${tsTag}.jpg`);
-    await fs.rename(join(outputDir, files[i]), join(outputDir, newName));
+    try {
+      await fs.rename(join(outputDir, files[i]), join(outputDir, newName));
+    } catch (err: any) {
+      process.stderr.write(`[OA Maestro] rename failed: ${err.message}\n`);
+    }
   }
 }
 
@@ -148,7 +169,7 @@ export async function extractFrames(
     ];
     const { stderr } = await spawnProcess(FFMPEG, args);
     const ptsTimes = parsePtsTimes(stderr);
-    await renameFramesWithTimes(outputDir, ptsTimes);
+    await renameFramesWithTimes(outputDir, ptsTimes, opts.durationSeconds);
   } else if (opts.mode === 'interval') {
     const fps = opts.fps ?? 1;
     vfParts.push(`fps=${fps}`, 'showinfo', 'scale=768:-2', DRAWTEXT_FILTER);
@@ -160,7 +181,7 @@ export async function extractFrames(
     ];
     const { stderr } = await spawnProcess(FFMPEG, args);
     const ptsTimes = parsePtsTimes(stderr);
-    await renameFramesWithTimes(outputDir, ptsTimes);
+    await renameFramesWithTimes(outputDir, ptsTimes, opts.durationSeconds);
   } else if (opts.mode === 'keyframe') {
     vfParts.push("select='eq(pict_type\\\\,I)'", 'showinfo', 'scale=768:-2', DRAWTEXT_FILTER);
     const args = [
@@ -172,7 +193,7 @@ export async function extractFrames(
     ];
     const { stderr } = await spawnProcess(FFMPEG, args);
     const ptsTimes = parsePtsTimes(stderr);
-    await renameFramesWithTimes(outputDir, ptsTimes);
+    await renameFramesWithTimes(outputDir, ptsTimes, opts.durationSeconds);
   } else if (opts.mode === 'targeted') {
     // Each timestamp is a separate extraction
     const timestamps = opts.timestamps ?? [];
