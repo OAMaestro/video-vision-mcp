@@ -6,6 +6,12 @@ import { ExtractionOptions, FrameInfo, GridResult } from '../types';
 
 const log = (msg: string) => process.stderr.write(`[OA Maestro] ${msg}\n`);
 
+function tsOf(p: string): number {
+  const f = (p.split(/[\\/]/).pop() ?? '');
+  const m = f.match(/(\d{2})-(\d{2})-(\d{2})\.jpg$/);
+  return m ? parseInt(m[1], 10) * 3600 + parseInt(m[2], 10) * 60 + parseInt(m[3], 10) : Infinity;
+}
+
 export interface ExtractAndGridResult {
   grids: GridResult[];
   frames: FrameInfo[];
@@ -34,13 +40,6 @@ async function fillFrameGaps(
   gapInterval: number,
   maxWidth: number
 ): Promise<string[]> {
-  // Helper: parse seconds from a frame file path (works for both frame_NNNN_HH-MM-SS.jpg and gapfill_HH-MM-SS.jpg)
-  function tsOf(p: string): number {
-    const f = (p.split(/[\\/]/).pop() ?? '');
-    const m = f.match(/(\d{2})-(\d{2})-(\d{2})\.jpg$/);
-    return m ? parseInt(m[1], 10) * 3600 + parseInt(m[2], 10) * 60 + parseInt(m[3], 10) : Infinity;
-  }
-
   // Sort existing frames by timestamp
   const sorted = [...framePaths].sort((a, b) => tsOf(a) - tsOf(b));
   if (sorted.length < 2) return framePaths;
@@ -127,15 +126,18 @@ export async function extractAndGrid(
 
   // Guarantee a frame near the video start in scene mode
   if (opts.mode === 'scene' && framePaths.length > 0) {
-    function tsOf(p: string): number {
-      const f = (p.split(/[\\/]/).pop() ?? '');
-      const m = f.match(/(\d{2})-(\d{2})-(\d{2})\.jpg$/);
-      return m ? parseInt(m[1], 10) * 3600 + parseInt(m[2], 10) * 60 + parseInt(m[3], 10) : Infinity;
-    }
     const sorted = [...framePaths].sort((a, b) => tsOf(a) - tsOf(b));
     if (tsOf(sorted[0]) > 3) {
       const startTs = opts.start_time ?? '00:00:00';
-      const outPath = join(framesDir, 'gapfill_00-00-00.jpg');
+      // Normalise to HH-MM-SS for the filename
+      const [hh, mm, ss] = startTs.includes(':')
+        ? startTs.split(':').map(s => s.padStart(2, '0'))
+        : [
+            String(Math.floor(Number(startTs) / 3600)).padStart(2, '0'),
+            String(Math.floor((Number(startTs) % 3600) / 60)).padStart(2, '0'),
+            String(Math.floor(Number(startTs) % 60)).padStart(2, '0'),
+          ];
+      const outPath = join(framesDir, `gapfill_${hh}-${mm}-${ss}.jpg`);
       try {
         await ffmpeg.extractFrameAt(input, startTs, outPath, opts.max_width ?? 768);
         framePaths = [outPath, ...framePaths];
