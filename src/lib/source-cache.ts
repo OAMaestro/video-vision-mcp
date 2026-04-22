@@ -48,7 +48,17 @@ export async function cacheVideo(url: string, sourcePath: string): Promise<strin
   const key = urlToKey(url);
   const dest = videoPath(key);
 
-  await fs.copyFile(sourcePath, dest);
+  try {
+    await fs.rename(sourcePath, dest);
+  } catch (err: any) {
+    if (err.code === 'EXDEV') {
+      // Cross-device move: copy then delete original
+      await fs.copyFile(sourcePath, dest);
+      await fs.unlink(sourcePath).catch(() => {});
+    } else {
+      throw err;
+    }
+  }
 
   const entry: CacheEntry = { url, path: dest, cached_at: Date.now() };
   await fs.writeFile(metaPath(key), JSON.stringify(entry, null, 2));
