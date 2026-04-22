@@ -51,7 +51,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           mode: { type: 'string', enum: ['scene', 'interval', 'keyframe', 'targeted', 'overview'] },
           fps: { type: 'number' },
           scene_threshold: { type: 'number' },
-          gap_fill_interval: { type: 'number' },
+          gap_fill_interval: { type: 'number', description: 'For scene mode: extract a fill frame in any gap larger than this many seconds. Set to 0 to disable.' },
           timestamps: { type: 'array', items: { type: 'string' } },
           max_frames: { type: 'number' },
           output_dir: { type: 'string' },
