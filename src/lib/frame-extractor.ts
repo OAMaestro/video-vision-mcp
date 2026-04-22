@@ -38,7 +38,7 @@ async function fillFrameGaps(
   function tsOf(p: string): number {
     const f = (p.split(/[\\/]/).pop() ?? '');
     const m = f.match(/(\d{2})-(\d{2})-(\d{2})\.jpg$/);
-    return m ? parseInt(m[1], 10) * 3600 + parseInt(m[2], 10) * 60 + parseInt(m[3], 10) : 0;
+    return m ? parseInt(m[1], 10) * 3600 + parseInt(m[2], 10) * 60 + parseInt(m[3], 10) : Infinity;
   }
 
   // Sort existing frames by timestamp
@@ -66,7 +66,7 @@ async function fillFrameGaps(
 
   // Extract fill frames with gapfill_ prefix
   const fillPaths: string[] = [];
-  for (const t of toFill) {
+  for (const t of [...new Set(toFill)]) {
     const h = String(Math.floor(t / 3600)).padStart(2, '0');
     const m = String(Math.floor((t % 3600) / 60)).padStart(2, '0');
     const s = String(t % 60).padStart(2, '0');
