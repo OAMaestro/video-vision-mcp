@@ -39,6 +39,11 @@ const gridComposer = __importStar(require("./grid-composer"));
 const path_1 = require("path");
 const fs = __importStar(require("fs/promises"));
 const log = (msg) => process.stderr.write(`[OA Maestro] ${msg}\n`);
+function tsOf(p) {
+    const f = (p.split(/[\\/]/).pop() ?? '');
+    const m = f.match(/(\d{2})-(\d{2})-(\d{2})\.jpg$/);
+    return m ? parseInt(m[1], 10) * 3600 + parseInt(m[2], 10) * 60 + parseInt(m[3], 10) : Infinity;
+}
 function parseTimestampFromFilename(filename) {
     // Pattern: frame_NNNN_HH-MM-SS.jpg
     const match = filename.match(/frame_\d+_(\d{2})-(\d{2})-(\d{2})\.jpg$/);
@@ -53,6 +58,66 @@ function parseTimestampFromFilename(filename) {
     }
     return { timestamp: '00:00:00', timestamp_seconds: 0 };
 }
+async function fillFrameGaps(input, framesDir, framePaths, gapInterval, maxWidth) {
+    // Sort existing frames by timestamp
+    const sorted = [...framePaths].sort((a, b) => tsOf(a) - tsOf(b));
+    if (sorted.length < 2)
+        return framePaths;
+    // Find timestamps to fill
+    const toFill = [];
+    for (let i = 0; i < sorted.length - 1; i++) {
+        const start = tsOf(sorted[i]);
+        const end = tsOf(sorted[i + 1]);
+        const gap = end - start;
+        if (gap > gapInterval) {
+            for (let t = start + gapInterval; t < end - gapInterval / 2; t += gapInterval) {
+                const rounded = Math.round(t);
+                // Skip if within 0.5s of any existing frame
+                if (!sorted.some(p => Math.abs(tsOf(p) - rounded) < 0.5)) {
+                    toFill.push(rounded);
+                }
+            }
+        }
+    }
+    if (toFill.length === 0)
+        return framePaths;
+    // Extract fill frames with gapfill_ prefix
+    const fillPaths = [];
+    for (const t of [...new Set(toFill)]) {
+        const h = String(Math.floor(t / 3600)).padStart(2, '0');
+        const m = String(Math.floor((t % 3600) / 60)).padStart(2, '0');
+        const s = String(t % 60).padStart(2, '0');
+        const outPath = (0, path_1.join)(framesDir, `gapfill_${h}-${m}-${s}.jpg`);
+        try {
+            await ffmpeg.extractFrameAt(input, `${h}:${m}:${s}`, outPath, maxWidth);
+            fillPaths.push(outPath);
+        }
+        catch { /* skip frames that fail */ }
+    }
+    if (fillPaths.length === 0)
+        return framePaths;
+    // Merge all frames and sort by timestamp
+    const all = [...framePaths, ...fillPaths].sort((a, b) => tsOf(a) - tsOf(b));
+    // Rename via temp names first to avoid conflicts during renumbering
+    const tmpPaths = [];
+    for (let i = 0; i < all.length; i++) {
+        const tmp = (0, path_1.join)(framesDir, `tmp_renum_${String(i).padStart(5, '0')}.jpg`);
+        await fs.rename(all[i], tmp);
+        tmpPaths.push(tmp);
+    }
+    // Rename to final frame_NNNN_HH-MM-SS.jpg names (preserving original timestamps)
+    const finalPaths = [];
+    for (let i = 0; i < tmpPaths.length; i++) {
+        const origTs = tsOf(all[i]);
+        const h = String(Math.floor(origTs / 3600)).padStart(2, '0');
+        const m = String(Math.floor((origTs % 3600) / 60)).padStart(2, '0');
+        const s = String(origTs % 60).padStart(2, '0');
+        const finalPath = (0, path_1.join)(framesDir, `frame_${String(i + 1).padStart(4, '0')}_${h}-${m}-${s}.jpg`);
+        await fs.rename(tmpPaths[i], finalPath);
+        finalPaths.push(finalPath);
+    }
+    return finalPaths;
+}
 async function extractAndGrid(input, jobDir, opts) {
     // 1. framesDir
     const framesDir = (0, path_1.join)(jobDir, 'frames');
@@ -60,6 +125,34 @@ async function extractAndGrid(input, jobDir, opts) {
     log(`Pulling frames (mode: ${opts.mode})...`);
     let framePaths = await ffmpeg.extractFrames(input, framesDir, opts);
     log(`Got ${framePaths.length} frames.`);
+    // Gap-fill: for scene mode, ensure no gap larger than gap_fill_interval goes uncovered
+    if (opts.mode === 'scene' && opts.gap_fill_interval && opts.gap_fill_interval > 0) {
+        log(`Filling coverage gaps > ${opts.gap_fill_interval}s...`);
+        framePaths = await fillFrameGaps(input, framesDir, framePaths, opts.gap_fill_interval, opts.max_width ?? 768);
+        log(`After gap-fill: ${framePaths.length} frames.`);
+    }
+    // Guarantee a frame near the video start in scene mode (runs even when scene detection found nothing)
+    if (opts.mode === 'scene') {
+        const sorted = [...framePaths].sort((a, b) => tsOf(a) - tsOf(b));
+        if (sorted.length === 0 || tsOf(sorted[0]) > 3) {
+            const startTs = opts.start_time ?? '00:00:00';
+            // Normalise to HH-MM-SS for the filename
+            const [hh, mm, ss] = startTs.includes(':')
+                ? startTs.split(':').map(s => s.padStart(2, '0'))
+                : [
+                    String(Math.floor(Number(startTs) / 3600)).padStart(2, '0'),
+                    String(Math.floor((Number(startTs) % 3600) / 60)).padStart(2, '0'),
+                    String(Math.floor(Number(startTs) % 60)).padStart(2, '0'),
+                ];
+            const outPath = (0, path_1.join)(framesDir, `gapfill_${hh}-${mm}-${ss}.jpg`);
+            try {
+                await ffmpeg.extractFrameAt(input, startTs, outPath, opts.max_width ?? 768);
+                framePaths = [outPath, ...framePaths];
+                log(`Prepended start frame at ${startTs}.`);
+            }
+            catch { /* skip if start frame extraction fails */ }
+        }
+    }
     const maxFrames = opts.max_frames ?? 80;
     let adjustedThreshold;
     // 3. If too many frames in scene mode, nudge threshold up and retry (up to 3x)
@@ -83,6 +176,12 @@ async function extractAndGrid(input, jobDir, opts) {
             const step = framePaths.length / 150;
             framePaths = Array.from({ length: 150 }, (_, i) => framePaths[Math.floor(i * step)]);
         }
+    }
+    // Hard cap at 150 frames for all modes — safety net
+    if (framePaths.length > 150) {
+        log(`Frame count (${framePaths.length}) exceeds hard cap — sampling evenly to 150.`);
+        const step = framePaths.length / 150;
+        framePaths = Array.from({ length: 150 }, (_, i) => framePaths[Math.floor(i * step)]);
     }
     // 4. Build FrameInfo array
     const frames = framePaths.map((p, i) => {

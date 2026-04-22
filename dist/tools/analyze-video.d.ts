@@ -6,6 +6,7 @@ export declare function analyzeVideoTool(args: {
     start_time?: string;
     end_time?: string;
     scene_threshold?: number;
+    gap_fill_interval?: number;
     max_frames?: number;
     cookies?: string;
 }, sessionDir: string): Promise<MCPContent[]>;

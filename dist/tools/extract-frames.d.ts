@@ -4,6 +4,7 @@ export declare function extractFramesTool(args: {
     mode: 'scene' | 'interval' | 'keyframe' | 'targeted' | 'overview';
     fps?: number;
     scene_threshold?: number;
+    gap_fill_interval?: number;
     timestamps?: string[];
     max_frames?: number;
     output_dir?: string;

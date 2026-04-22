@@ -138,14 +138,33 @@ async function analyzeVideoTool(args, sessionDir) {
             };
         }
         else {
-            // detailed or full
-            extractionOpts = {
-                mode: 'scene',
-                scene_threshold: args.scene_threshold ?? 0.2,
-                max_frames: args.max_frames ?? 80,
-                start_time: args.start_time,
-                end_time: args.end_time,
-            };
+            // detailed or full: short videos get dense interval extraction, long videos get scene detection
+            const SHORT_THRESHOLD = 180; // 3 minutes
+            if (videoInfo.duration_seconds <= SHORT_THRESHOLD) {
+                // Dense interval extraction — every frame counts on short-form content
+                const maxF = args.max_frames ?? 80;
+                const targetFps = Math.min(2, maxF / Math.max(videoInfo.duration_seconds, 1));
+                extractionOpts = {
+                    mode: 'interval',
+                    fps: targetFps,
+                    max_frames: maxF,
+                    start_time: args.start_time,
+                    end_time: args.end_time,
+                    durationSeconds: videoInfo.duration_seconds,
+                };
+            }
+            else {
+                // Scene detection for long-form content (>3 min)
+                extractionOpts = {
+                    mode: 'scene',
+                    scene_threshold: args.scene_threshold ?? 0.2,
+                    gap_fill_interval: args.gap_fill_interval ?? 2,
+                    max_frames: args.max_frames ?? 80,
+                    start_time: args.start_time,
+                    end_time: args.end_time,
+                    durationSeconds: videoInfo.duration_seconds,
+                };
+            }
         }
         log('Extracting frames + fetching captions simultaneously. Multitasking.');
         // Run frame extraction and caption download in parallel

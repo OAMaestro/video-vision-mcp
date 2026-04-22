@@ -28,6 +28,7 @@ export interface ExtractionOptions {
     max_width?: number;
     overlay_timestamp?: boolean;
     durationSeconds?: number;
+    gap_fill_interval?: number;
 }
 export interface GridResult {
     path: string;

@@ -72,7 +72,19 @@ async function cacheVideo(url, sourcePath) {
     await fs.mkdir(session_manager_1.VIDEO_CACHE_DIR, { recursive: true });
     const key = urlToKey(url);
     const dest = videoPath(key);
-    await fs.copyFile(sourcePath, dest);
+    try {
+        await fs.rename(sourcePath, dest);
+    }
+    catch (err) {
+        if (err.code === 'EXDEV') {
+            // Cross-device move: copy then delete original
+            await fs.copyFile(sourcePath, dest);
+            await fs.unlink(sourcePath).catch(() => { });
+        }
+        else {
+            throw err;
+        }
+    }
     const entry = { url, path: dest, cached_at: Date.now() };
     await fs.writeFile(metaPath(key), JSON.stringify(entry, null, 2));
     return dest;

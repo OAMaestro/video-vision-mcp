@@ -175,6 +175,13 @@ export async function extractAndGrid(
     }
   }
 
+  // Hard cap at 150 frames for all modes — safety net
+  if (framePaths.length > 150) {
+    log(`Frame count (${framePaths.length}) exceeds hard cap — sampling evenly to 150.`);
+    const step = framePaths.length / 150;
+    framePaths = Array.from({ length: 150 }, (_, i) => framePaths[Math.floor(i * step)]);
+  }
+
   // 4. Build FrameInfo array
   const frames: FrameInfo[] = framePaths.map((p, i) => {
     const filename = p.split(/[\\/]/).pop() ?? '';
