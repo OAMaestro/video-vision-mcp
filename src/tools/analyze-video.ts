@@ -119,10 +119,14 @@ export async function analyzeVideoTool(
       };
     } else {
       // detailed or full
+      const defaultGapFill = videoInfo.duration_seconds <= 60 ? 0.5
+        : videoInfo.duration_seconds <= 120 ? 1
+        : 2;
+
       extractionOpts = {
         mode: 'scene',
         scene_threshold: args.scene_threshold ?? 0.2,
-        gap_fill_interval: args.gap_fill_interval ?? 2,
+        gap_fill_interval: args.gap_fill_interval ?? defaultGapFill,
         max_frames: args.max_frames ?? 80,
         start_time: args.start_time,
         end_time: args.end_time,
