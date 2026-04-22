@@ -13,6 +13,7 @@ export async function extractFramesTool(
     mode: 'scene' | 'interval' | 'keyframe' | 'targeted' | 'overview';
     fps?: number;
     scene_threshold?: number;
+    gap_fill_interval?: number;
     timestamps?: string[];
     max_frames?: number;
     output_dir?: string;
@@ -73,6 +74,7 @@ export async function extractFramesTool(
       mode: args.mode,
       fps: args.fps,
       scene_threshold: args.scene_threshold,
+      gap_fill_interval: args.gap_fill_interval,
       timestamps: args.timestamps,
       max_frames: args.max_frames,
       start_time: args.start_time,

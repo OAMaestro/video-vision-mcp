@@ -50,6 +50,7 @@ export async function analyzeVideoTool(
     start_time?: string;
     end_time?: string;
     scene_threshold?: number;
+    gap_fill_interval?: number;
     max_frames?: number;
     cookies?: string;
   },
@@ -121,6 +122,7 @@ export async function analyzeVideoTool(
       extractionOpts = {
         mode: 'scene',
         scene_threshold: args.scene_threshold ?? 0.2,
+        gap_fill_interval: args.gap_fill_interval ?? 2,
         max_frames: args.max_frames ?? 80,
         start_time: args.start_time,
         end_time: args.end_time,
