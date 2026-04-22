@@ -124,10 +124,10 @@ export async function extractAndGrid(
     log(`After gap-fill: ${framePaths.length} frames.`);
   }
 
-  // Guarantee a frame near the video start in scene mode
-  if (opts.mode === 'scene' && framePaths.length > 0) {
+  // Guarantee a frame near the video start in scene mode (runs even when scene detection found nothing)
+  if (opts.mode === 'scene') {
     const sorted = [...framePaths].sort((a, b) => tsOf(a) - tsOf(b));
-    if (tsOf(sorted[0]) > 3) {
+    if (sorted.length === 0 || tsOf(sorted[0]) > 3) {
       const startTs = opts.start_time ?? '00:00:00';
       // Normalise to HH-MM-SS for the filename
       const [hh, mm, ss] = startTs.includes(':')
