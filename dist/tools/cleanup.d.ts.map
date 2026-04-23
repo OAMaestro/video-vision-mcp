@@ -1,1 +1,0 @@
-{"version":3,"file":"cleanup.d.ts","sourceRoot":"","sources":["../../src/tools/cleanup.ts"],"names":[],"mappings":"AAGA,OAAO,EAAE,UAAU,EAAE,MAAM,UAAU,CAAC;AAEtC,wBAAsB,WAAW,CAC/B,IAAI,EAAE;IACJ,KAAK,EAAE,KAAK,GAAG,SAAS,GAAG,KAAK,CAAC;IACjC,MAAM,CAAC,EAAE,MAAM,CAAC;CACjB,EACD,UAAU,EAAE,MAAM,GACjB,OAAO,CAAC,UAAU,EAAE,CAAC,CAwCvB"}
