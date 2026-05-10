@@ -1,6 +1,7 @@
 import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
 import ffprobeInstaller from '@ffprobe-installer/ffprobe';
 import { spawn } from 'child_process';
+import { existsSync } from 'fs';
 import * as fs from 'fs/promises';
 import { join } from 'path';
 import { ExtractionOptions, VideoInfo } from '../types';
@@ -68,7 +69,25 @@ export async function getLocalVideoInfo(filePath: string): Promise<VideoInfo> {
   };
 }
 
-const DRAWTEXT_FILTER = "drawtext=text='%{pts\\\\:hms}':x=10:y=10:fontsize=18:fontcolor=white:box=1:boxcolor=black@0.6:boxborderw=4";
+function findFontFile(): string | null {
+  if (process.platform !== 'darwin') return null;
+
+  const candidates = [
+    '/System/Library/Fonts/Supplemental/Arial.ttf',
+    '/System/Library/Fonts/Supplemental/Helvetica.ttf',
+    '/Library/Fonts/Arial.ttf',
+  ];
+
+  return candidates.find((candidate) => existsSync(candidate)) ?? null;
+}
+
+function escapeDrawtextPath(path: string): string {
+  return path.replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, "\\'");
+}
+
+const FONT_FILE = findFontFile();
+const FONT_FILE_OPTION = FONT_FILE ? `fontfile='${escapeDrawtextPath(FONT_FILE)}':` : '';
+const DRAWTEXT_FILTER = `drawtext=${FONT_FILE_OPTION}text='%{pts\\:hms}':x=10:y=10:fontsize=18:fontcolor=white:box=1:boxcolor=black@0.6:boxborderw=4`;
 
 function parsePtsTimes(stderr: string): number[] {
   const times: number[] = [];

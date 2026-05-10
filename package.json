@@ -20,6 +20,7 @@
   "files": ["dist", "bin", "README.md", "LICENSE"],
   "scripts": {
     "build": "tsc",
+    "test": "npm run build && node --test test/*.test.mjs",
     "dev": "npx ts-node src/index.ts",
     "start": "node dist/index.js",
     "start:server": "node dist/server.js --server",
