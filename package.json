@@ -29,7 +29,7 @@
     "node": ">=18.0.0"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.0",
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "@ffmpeg-installer/ffmpeg": "^1.1.0",
     "@ffprobe-installer/ffprobe": "^1.4.1",
     "@huggingface/transformers": "^3.0.0",
