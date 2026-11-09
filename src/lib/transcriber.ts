@@ -55,12 +55,33 @@ export async function getTranscriber(): Promise<any> {
   return initPromise;
 }
 
+function wavToFloat32Array(buf: Buffer): Float32Array {
+  const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  let offset = 12; // skip RIFF<size>WAVE
+  while (offset + 8 <= buf.length) {
+    const id = buf.toString('ascii', offset, offset + 4);
+    const size = view.getUint32(offset + 4, true);
+    if (id === 'data') {
+      const start = offset + 8;
+      const n = Math.floor((buf.length - start) / 2);
+      const i16 = new Int16Array(buf.buffer, buf.byteOffset + start, n);
+      const f32 = new Float32Array(n);
+      for (let i = 0; i < n; i++) f32[i] = i16[i] / 32768;
+      return f32;
+    }
+    offset += 8 + size + (size % 2);
+  }
+  throw new Error('No data chunk found in WAV');
+}
+
 export async function transcribeFile(
   audioPath: string,
   options: { language?: string; returnTimestamps?: boolean }
 ): Promise<TranscriptResult> {
   const t = await getTranscriber();
-  const result = await t(audioPath, {
+  const buf = await fs.readFile(audioPath);
+  const samples = wavToFloat32Array(buf);
+  const result = await t(samples, {
     return_timestamps: options.returnTimestamps ?? true,
     language: options.language ?? null,
     chunk_length_s: 30,
