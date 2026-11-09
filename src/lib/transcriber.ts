@@ -9,6 +9,11 @@ const log = (msg: string) => process.stderr.write(`[OA Maestro] ${msg}\n`);
 // Model cache lives in ~/.oamaestro/models — set BEFORE any pipeline call
 env.cacheDir = join(homedir(), '.oamaestro', 'models');
 
+// Remote Whisper (OpenAI-compatible) offload — opt-in via env. Unset = local std ONNX whisper.
+const WHISPER_URL = (process.env.WHISPER_URL ?? '').replace(/\/+$/, '');
+const WHISPER_MODEL = process.env.WHISPER_MODEL ?? '';
+const WHISPER_API_KEY = process.env.WHISPER_API_KEY ?? '';
+
 let transcriptionPipeline: any = null;
 let initPromise: Promise<any> | null = null;
 
@@ -55,18 +60,72 @@ export async function getTranscriber(): Promise<any> {
   return initPromise;
 }
 
+function wavToFloat32Array(buf: Buffer): Float32Array {
+  const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  let offset = 12; // skip RIFF<size>WAVE
+  while (offset + 8 <= buf.length) {
+    const id = buf.toString('ascii', offset, offset + 4);
+    const size = view.getUint32(offset + 4, true);
+    if (id === 'data') {
+      const start = offset + 8;
+      const n = Math.floor((buf.length - start) / 2);
+      const i16 = new Int16Array(buf.buffer, buf.byteOffset + start, n);
+      const f32 = new Float32Array(n);
+      for (let i = 0; i < n; i++) f32[i] = i16[i] / 32768;
+      return f32;
+    }
+    offset += 8 + size + (size % 2);
+  }
+  throw new Error('No data chunk found in WAV');
+}
+
 export async function transcribeFile(
   audioPath: string,
   options: { language?: string; returnTimestamps?: boolean }
 ): Promise<TranscriptResult> {
+  if (WHISPER_URL) {
+    try {
+      return await transcribeRemote(audioPath);
+    } catch (err: any) {
+      log(`remote whisper failed (${err.message}) — falling back to local ONNX`);
+    }
+  }
+  return transcribeLocal(audioPath, options);
+}
+
+async function transcribeLocal(
+  audioPath: string,
+  options: { language?: string; returnTimestamps?: boolean }
+): Promise<TranscriptResult> {
   const t = await getTranscriber();
-  const result = await t(audioPath, {
+  const buf = await fs.readFile(audioPath);
+  const samples = wavToFloat32Array(buf);
+  const result = await t(samples, {
     return_timestamps: options.returnTimestamps ?? true,
     language: options.language ?? null,
     chunk_length_s: 30,
     stride_length_s: 5,
   });
   return { text: result.text, chunks: result.chunks ?? [] };
+}
+
+// FILE-ONLY. Do NOT send response_format / timestamp_granularities — this server 500s on them.
+async function transcribeRemote(audioPath: string): Promise<TranscriptResult> {
+  const wav = await fs.readFile(audioPath); // extractAudio already emits 16k mono WAV
+  const form = new FormData();
+  form.append('file', new Blob([wav], { type: 'audio/wav' }), 'audio.wav');
+  if (WHISPER_MODEL) form.append('model', WHISPER_MODEL);
+  const headers: Record<string, string> = {};
+  if (WHISPER_API_KEY) headers.Authorization = `Bearer ${WHISPER_API_KEY}`;
+  const resp = await fetch(WHISPER_URL, {
+    method: 'POST',
+    body: form,
+    headers,
+    signal: AbortSignal.timeout(300_000),
+  });
+  if (!resp.ok) throw new Error(`remote whisper HTTP ${resp.status}`);
+  const j = await resp.json();
+  return { text: j.text ?? '', chunks: [] }; // no segments from this server
 }
 
 function formatTime(seconds: number): string {
@@ -90,7 +149,8 @@ function toSrtTime(seconds: number): string {
 }
 
 export function formatTranscript(result: TranscriptResult, format: 'plain' | 'timestamped' | 'srt'): string {
-  if (format === 'plain') {
+  // Remote whisper returns no segments — fall back to plain text so we don't render blank.
+  if (format === 'plain' || result.chunks.length === 0) {
     return result.text.trim();
   }
   if (format === 'timestamped') {
