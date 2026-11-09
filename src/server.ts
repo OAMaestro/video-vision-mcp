@@ -44,8 +44,8 @@ app.all('/mcp', async (req, res) => {
       void cleanupSession(sessionDir);
     };
     await server.connect(transport);
-    if (transport.sessionId) mcpTransports.set(transport.sessionId, transport);
     await transport.handleRequest(req, res, req.body);
+    if (transport.sessionId) mcpTransports.set(transport.sessionId, transport);
   } catch (err: any) {
     res.status(500).json({ error: `session init failed: ${err.message}` });
   }
